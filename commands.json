@@ -1,0 +1,39 @@
+{
+  "commands": [
+    {
+      "name": "socials",
+      "description": "When someone asks about social media accounts, Twitter, Instagram, YouTube, etc.",
+      "response": "Follow us on Twitter @example, Instagram @example, and YouTube at youtube.com/example!"
+    },
+    {
+      "name": "rules",
+      "description": "When someone asks about chat rules, guidelines, or what is allowed",
+      "response": "Chat rules: 1) Be respectful 2) No spam 3) No self-promotion without permission 4) Keep it English 5) Have fun!"
+    },
+    {
+      "name": "specs",
+      "description": "When someone asks about PC specs, setup, hardware, gear, equipment, peripherals",
+      "response": "Current setup: RTX 4090, Ryzen 9 7950X, 64GB DDR5, Samsung 990 Pro 2TB. Peripherals: Logitech G Pro X Superlight, custom mechanical keyboard."
+    },
+    {
+      "name": "song",
+      "description": "When someone asks what song or music is currently playing",
+      "response": "Current music is from the community Spotify playlist: spotify.com/playlist/example"
+    },
+    {
+      "name": "discord",
+      "description": "When someone asks about the Discord server or how to join the community",
+      "response": "Join the community Discord at discord.gg/example!"
+    },
+    {
+      "name": "rank",
+      "description": "When someone asks about current game rank, ELO, rating, or competitive standing",
+      "response": "Current rank: Diamond 2. Peak rank this season: Diamond 1."
+    },
+    {
+      "name": "coaching",
+      "description": "When someone asks for how they can get private or group coaching to get better at the game",
+      "response": "For help, please go to this link for coaching"
+    }
+  ]
+}
