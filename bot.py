@@ -73,8 +73,10 @@ def load_guild_commands(guild_id: int) -> list[dict]:
 
 def save_guild_commands(guild_id: int, commands: list[dict]):
     path = _guild_path(guild_id)
-    with open(path, "w") as f:
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump({"commands": commands}, f, indent=2)
+    os.replace(tmp, path)
     logger.info(f"[guild={guild_id}] Saved {len(commands)} commands to {path}")
 
 
@@ -113,6 +115,17 @@ tree = app_commands.CommandTree(client)
 
 # per-channel cooldown tracker
 _last_response_time: dict[int, float] = {}
+
+
+async def _cleanup_cooldown_cache():
+    while True:
+        await asyncio.sleep(3600)
+        cutoff = time.time() - (COOLDOWN_SECONDS + 5)
+        stale = [ch for ch, t in _last_response_time.items() if t < cutoff]
+        for ch in stale:
+            del _last_response_time[ch]
+        if stale:
+            logger.info(f"Cleaned up {len(stale)} stale cooldown entries")
 
 
 def _on_cooldown(channel_id: int) -> bool:
@@ -307,7 +320,7 @@ async def test_command(interaction: discord.Interaction, message: str):
     await interaction.response.defer(ephemeral=True)
 
     clf = get_guild_classifier(interaction.guild_id)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     matched = await loop.run_in_executor(None, clf.classify, message)
 
     if matched:
@@ -343,11 +356,10 @@ async def on_guild_remove(guild: discord.Guild):
 
 @client.event
 async def on_ready():
-    await tree.sync()
+    asyncio.create_task(_cleanup_cooldown_cache())
     for guild in client.guilds:
         get_guild_commands(guild.id)  # seeds the file if it doesn't exist
     logger.info(f"Logged in as {client.user} (id={client.user.id})")
-    logger.info(f"Synced {len(tree.get_commands())} slash commands")
     if ADMIN_IDS:
         logger.info(f"Global admin user IDs: {ADMIN_IDS}")
     else:
@@ -374,7 +386,7 @@ async def on_message(message: discord.Message):
         return
 
     clf = get_guild_classifier(message.guild.id)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     matched = await loop.run_in_executor(None, clf.classify, message.content)
 
     if matched:
