@@ -93,7 +93,17 @@ Once the bot is running, admins can manage commands live via Discord slash comma
 /listcmds
 ```
 
-Displays every command configured for this server with its trigger description and response. Only visible to you (ephemeral).
+Displays every command configured for this server with its trigger description and response. Paginated (5 per page) with Prev/Next buttons if there are more than 5 commands. Only visible to you (ephemeral).
+
+---
+
+### `/resetcmds` — Reset to default template
+
+```
+/resetcmds
+```
+
+Replaces this server's entire command set with the default template from `commands.json`. Useful to start fresh. Irreversible without manual backup.
 
 ---
 
@@ -135,7 +145,59 @@ Runs a message through this server's classifier and shows which command matched,
 
 All slash commands are **ephemeral** (only you can see the responses).
 
+## Per-Server Configuration
+
+Each server can override the global defaults for confidence threshold, cooldown, and watched channels using the `/config` command group. Settings are saved to `data/{guild_id}_config.json` and take effect immediately.
+
+### `/config view` — Show current settings
+
+```
+/config view
+```
+
+### `/config threshold` — Confidence threshold
+
+```
+/config threshold value:0.75
+```
+
+Sets how confident the classifier must be before responding. Range: `0.0–1.0`. Higher = stricter.
+
+### `/config cooldown` — Response cooldown
+
+```
+/config cooldown value:30
+```
+
+Seconds the bot waits between responses in the same channel. `0` disables the cooldown. Range: `0–3600`.
+
+### `/config channels` — Watched channels
+
+```
+/config channels channels:general,chat,support
+```
+
+Comma-separated list of channel names to monitor. Leave blank to watch all channels.
+
+```
+/config channels
+```
+
+### `/config reset` — Reset config to defaults
+
+```
+/config reset
+```
+
+Restores this server's configuration to the global defaults from `.env`.
+
+---
+
+All slash commands are **ephemeral** (only you can see the responses).
+
 ## Tuning
+
+The env vars below set the **global defaults**. Each server can override these individually via `/config`.
 
 | Env Variable | Default | Description |
 |---|---|---|
@@ -145,7 +207,7 @@ All slash commands are **ephemeral** (only you can see the responses).
 
 ### Tips
 
-- **Too many false positives?** Raise `CONFIDENCE_THRESHOLD` to 0.7 or 0.8.
+- **Too many false positives?** Raise the threshold to 0.7 or 0.8 via `/config threshold`.
 - **Missing obvious matches?** Lower the threshold or improve the command `description`.
 - **Bot responding to everything?** Make descriptions more specific about *when* to match, not just what the topic is.
 - The `description` field is what the LLM reads to decide matches — invest time writing clear, specific descriptions.
@@ -157,10 +219,12 @@ Claude Haiku is used for classification. Each chat message costs roughly **$0.00
 ## File Structure
 
 ```
-commands.json        ← default template copied to new servers
+commands.json               ← default command template copied to new servers
 data/
-  123456789.json     ← server-specific commands (auto-created)
+  123456789.json            ← server-specific commands (auto-created)
+  123456789_config.json     ← server-specific config (created on first change)
   987654321.json
+  987654321_config.json
   ...
 ```
 

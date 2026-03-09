@@ -30,7 +30,7 @@ A Discord bot that passively listens to chat and auto-responds when a message ma
 - If a server was previously joined, the orphaned JSON file is reused as-is (their customizations come back)
 
 ### Guild remove / cache cleanup
-- `on_guild_remove` evicts the guild's entries from both `_guild_commands` and `_guild_classifiers`
+- `on_guild_remove` evicts the guild's entries from `_guild_commands`, `_guild_classifiers`, and `_guild_config`
 - The `data/{guild_id}.json` file is intentionally kept on disk so commands are restored if the bot is re-added
 
 ### Permission system
@@ -38,22 +38,59 @@ A Discord bot that passively listens to chat and auto-responds when a message ma
 - Grants access to: global `ADMIN_IDS` from `.env` **OR** any Discord member with the Manage Server permission
 - Server owners/admins can manage their own bot without needing to be in `ADMIN_IDS`
 
-### Documentation
-- `README.md` updated to reflect per-server architecture, new file structure, and updated permission docs
-- `CLAUDE.md` created for future AI assistant context
+### Code quality fixes
+- Atomic file writes in `save_guild_commands` and `save_guild_config` — writes `.tmp` then `os.replace()` to prevent corruption
+- Background `_cleanup_cooldown_cache()` task runs every hour to evict stale entries from `_last_response_time`
+- Replaced deprecated `asyncio.get_event_loop()` with `asyncio.get_running_loop()` in `on_message` and `/testcmd`
+
+### `/resetcmds` command
+- Resets a server's entire command set back to the default template from `commands.json`
+- Admin-only, guild-only
+- Updates in-memory cache, disk file, and reloads classifier immediately
+
+### `/listcmds` pagination
+- Commands are now shown 5 per page with Prev/Next buttons (discord.ui.View)
+- Buttons are disabled at boundaries; view times out after 120 seconds
+- If there is only one page, no buttons are shown
+
+### Per-server configuration
+- Each server can override global defaults for three settings:
+  - `confidence_threshold` — minimum classifier confidence to respond
+  - `cooldown_seconds` — per-channel response cooldown
+  - `watched_channels` — list of channel names to monitor (empty = all)
+- Stored in `data/{guild_id}_config.json`; loaded lazily and cached in `_guild_config`
+- `load_guild_config` merges stored values over `_default_config()` so new keys always get a default (forward-compatible)
+- `_on_cooldown` now takes `cooldown_seconds` as a parameter instead of using the global
+- `on_message` pulls both `watched_channels` and `cooldown_seconds` from guild config
+- `get_guild_classifier` and `reload_guild_classifier` use per-guild `confidence_threshold`
+
+### `/config` command group
+- `/config view` — shows current threshold, cooldown, watched channels (any user)
+- `/config threshold <0.0–1.0>` — sets confidence threshold; reloads classifier (admin)
+- `/config cooldown <0–3600>` — sets per-channel cooldown in seconds (admin)
+- `/config channels [names]` — comma-separated channel names; blank = all (admin)
+- `/config reset` — restores all settings to global env var defaults (admin)
+
+### Slash command sync with `--sync-guild` flag
+- `python bot.py --sync-guild` — syncs commands to the test guild in `SYNC_GUILD_ID` (instant)
+- `python bot.py` — syncs globally (up to 1 hour propagation)
+- `SYNC_GUILD_ID` is read from `.env`; error logged if flag used without it set
+- Uses `tree.copy_global_to(guild=...)` before guild sync so all commands appear in the test server
 
 ---
 
 ## Current file structure
 
 ```
-bot.py           — bot, slash commands, per-guild storage layer
-classifier.py    — IntentClassifier wrapping Anthropic API
-commands.json    — starter template copied to new servers (not live data)
+bot.py                    — bot, slash commands, per-guild storage + config layer
+classifier.py             — IntentClassifier wrapping Anthropic API
+commands.json             — starter template copied to new servers (not live data)
 data/
-  {guild_id}.json  — per-server live command sets (auto-created)
-CLAUDE.md        — AI assistant guidance
-README.md        — user-facing documentation
+  {guild_id}.json         — per-server live command sets (auto-created)
+  {guild_id}_config.json  — per-server config (created on first /config change)
+CLAUDE.md                 — AI assistant guidance
+README.md                 — user-facing documentation
+progress.md               — this file
 requirements.txt
 ```
 
@@ -61,7 +98,7 @@ requirements.txt
 
 ## Known limitations / potential next steps
 
-- `WATCHED_CHANNELS` is global — there's no per-server channel filtering
-- No way to reset a server's commands back to the default template via slash command
-- No pagination for `/listcmds` beyond the 1900-char truncation
-- `CONFIDENCE_THRESHOLD` and `COOLDOWN_SECONDS` are global — not configurable per server
+- No pagination for `/listcmds` beyond 5 per page (page size hardcoded as `PAGE_SIZE = 5`)
+- No `/exportcmds` or `/importcmds` for bulk command management
+- No per-server logging channel (all logs go to stdout only)
+- `SYNC_GUILD_ID` is a single test guild — no multi-guild test sync support
