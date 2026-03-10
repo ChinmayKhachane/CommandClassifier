@@ -19,21 +19,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.6"))
 
-WATCHED_CHANNELS: list[str] = [
-    ch.strip()
-    for ch in os.getenv("WATCHED_CHANNELS", "").split(",")
-    if ch.strip()
-]
-
 COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", "10"))
-
-# Discord user IDs that can manage commands globally. Comma-separated.
-# Find your ID: enable Developer Mode in Discord, right-click yourself, Copy User ID.
-ADMIN_IDS: set[int] = {
-    int(uid.strip())
-    for uid in os.getenv("ADMIN_IDS", "").split(",")
-    if uid.strip()
-}
 
 _sync_guild_id_str = os.getenv("SYNC_GUILD_ID", "").strip()
 SYNC_GUILD_ID: int | None = int(_sync_guild_id_str) if _sync_guild_id_str else None
@@ -96,7 +82,7 @@ def _default_config() -> dict:
     return {
         "confidence_threshold": CONFIDENCE_THRESHOLD,
         "cooldown_seconds": COOLDOWN_SECONDS,
-        "watched_channels": list(WATCHED_CHANNELS),
+        "watched_channels": [],
     }
 
 
@@ -221,9 +207,6 @@ def _on_cooldown(channel_id: int, cooldown_seconds: int) -> bool:
 
 
 def is_admin(interaction: discord.Interaction) -> bool:
-    """Global admins OR users with the Manage Guild permission can manage commands."""
-    if interaction.user.id in ADMIN_IDS:
-        return True
     if isinstance(interaction.user, discord.Member):
         return interaction.user.guild_permissions.manage_guild
     return False
@@ -667,14 +650,7 @@ async def on_ready():
         logger.info(f"Synced {len(tree.get_commands())} slash commands globally (may take up to 1 hour)")
 
     logger.info(f"Logged in as {client.user} (id={client.user.id})")
-    if ADMIN_IDS:
-        logger.info(f"Global admin user IDs: {ADMIN_IDS}")
-    else:
-        logger.warning("No ADMIN_IDS set — only users with Manage Server permission can manage commands!")
-    if WATCHED_CHANNELS:
-        logger.info(f"Watching channels: {WATCHED_CHANNELS}")
-    else:
-        logger.info("Watching ALL channels")
+    logger.info("Watching ALL channels by default (configurable per server via /config channels)")
 
 
 @client.event
@@ -721,10 +697,6 @@ if __name__ == "__main__":
         raise SystemExit("DISCORD_TOKEN not set. Add it to your .env file.")
     if not ANTHROPIC_API_KEY:
         raise SystemExit("ANTHROPIC_API_KEY not set. Add it to your .env file.")
-    if not ADMIN_IDS:
-        logger.warning(
-            "ADMIN_IDS is empty. Users with Manage Server permission can still manage commands."
-        )
 
     init_db()
     client.run(DISCORD_TOKEN)
