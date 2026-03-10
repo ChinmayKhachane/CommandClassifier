@@ -13,12 +13,17 @@ Requires a `.env` file with:
 ```
 DISCORD_TOKEN=your_discord_bot_token
 ANTHROPIC_API_KEY=sk-ant-...
-ADMIN_IDS=123456789,987654321       # optional, comma-separated Discord user IDs
 CONFIDENCE_THRESHOLD=0.6            # optional, global default
 COOLDOWN_SECONDS=10                 # optional, global default
-WATCHED_CHANNELS=general,chat       # optional, global default, empty = all channels
 SYNC_GUILD_ID=123456789             # optional, required for --sync-guild flag
+DATA_DIR=/data                      # optional, defaults to project root; set for Railway
 ```
+
+There is no `ADMIN_IDS` or `WATCHED_CHANNELS` env var — admin access is determined solely by Discord's Manage Server permission, and watched channels are configured per-server via `/config channels`.
+
+## Deployment
+
+Deployed on Railway as an always-on worker process (never serverless — bot needs a persistent WebSocket connection). A Railway Volume is mounted at `/data` and `DATA_DIR=/data` is set so `bot.db` persists across redeploys. The `Procfile` defines the process: `worker: python bot.py`.
 
 ## Architecture
 
@@ -30,7 +35,7 @@ Two files make up the entire bot:
 
 ### Database
 
-- All data is stored in `bot.db` (SQLite) in the project root.
+- All data is stored in `bot.db` (SQLite). Location controlled by `DATA_DIR` env var, defaulting to project root.
 - `init_db()` must be called before `client.run()` — creates tables if they don't exist.
 - Two tables: `commands(guild_id, name, description, response)` and `guild_config(guild_id, confidence_threshold, cooldown_seconds, watched_channels)`.
 - `watched_channels` is stored as a JSON array string.
@@ -51,7 +56,7 @@ Two files make up the entire bot:
 
 ### Permissions
 
-`is_admin(interaction)` returns `True` for user IDs in `ADMIN_IDS` **or** any Discord member with the Manage Server (`manage_guild`) permission. All slash commands that mutate state check this and are guild-only (reject DMs).
+`is_admin(interaction)` returns `True` for any Discord member with the Manage Server (`manage_guild`) permission. There is no global `ADMIN_IDS` override. All slash commands that mutate state check this and are guild-only (reject DMs).
 
 ### Slash commands
 
@@ -67,19 +72,19 @@ Two files make up the entire bot:
 | `/config threshold` | yes | Set confidence threshold (0.0–1.0) |
 | `/config cooldown` | yes | Set cooldown in seconds (0–3600) |
 | `/config channels` | yes | Set watched channels (blank = all) |
-| `/config reset` | yes | Reset config to global defaults |
+| `/config reset` | yes | Reset config to defaults |
 
 ### Slash command sync
 
 - `on_ready` calls `tree.sync()` globally by default.
-- If `--sync-guild` CLI flag is passed, uses `tree.copy_global_to(guild=...)` + `tree.sync(guild=...)` for instant guild-scoped sync.
+- If `--sync-guild` CLI flag is passed, uses `tree.copy_global_to(guild=...)` + `tree.sync(guild=...)` for instant guild-scoped sync, then clears global commands to prevent duplicates.
 - `SYNC_GUILD_ID` must be set in `.env` for `--sync-guild` to work.
 
 ### Key constants / globals
 
 - `PAGE_SIZE = 5` — commands shown per page in `/listcmds`
 - `DEFAULT_COMMANDS` — loaded once from `commands.json` at startup
-- `DB_PATH` — `Path` to `bot.db` in the project root
+- `DB_PATH` — `Path` to `bot.db`; location set by `DATA_DIR` env var
 - `_conn` — single `sqlite3.Connection`, opened by `init_db()`
 - `DEFAULT_CONFIG` — loaded once from `config.json` at startup; used by `/config reset`
 - `SYNC_GUILD_ID` — int or None, read from env

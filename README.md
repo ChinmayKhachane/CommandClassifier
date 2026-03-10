@@ -39,7 +39,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ### 3. Customize the Default Template
 
-Edit `commands.json` — this is the **template** that every new server starts with when the bot joins. It does not affect servers that already have their own commands file.
+Edit `commands.json` — this is the **template** that every new server starts with when the bot joins. It does not affect servers that already have their own commands.
 
 Each command has:
 
@@ -52,6 +52,25 @@ Each command has:
 ```bash
 python bot.py
 ```
+
+## Deployment (Railway)
+
+The bot is designed to run as an always-on worker process. Do not enable serverless — the bot requires a persistent WebSocket connection to Discord.
+
+### Required environment variables
+
+| Variable | Description |
+|---|---|
+| `DISCORD_TOKEN` | Your Discord bot token |
+| `ANTHROPIC_API_KEY` | Your Anthropic API key |
+| `DATA_DIR` | Path to persistent storage directory (e.g. `/data`) |
+| `CONFIDENCE_THRESHOLD` | Optional, default `0.6` |
+| `COOLDOWN_SECONDS` | Optional, default `10` |
+| `SYNC_GUILD_ID` | Optional, only needed for `--sync-guild` local testing |
+
+### Persistent volume
+
+`bot.db` must survive redeploys. On Railway: add a Volume and mount it at `/data`, then set `DATA_DIR=/data`. Without this the database resets on every deploy.
 
 ## Per-Server Commands
 
@@ -66,10 +85,7 @@ All slash commands operate on the server they are used in.
 Once the bot is running, admins can manage commands live via Discord slash commands — no need to edit files manually or restart the bot. Changes take effect immediately.
 
 > **Who can manage commands?**
-> - Any Discord user ID listed in `ADMIN_IDS` in `.env`
-> - Any server member with the **Manage Server** permission
->
-> To find your user ID: enable Developer Mode in Discord settings, then right-click your username and select **Copy User ID**.
+> Any server member with the **Manage Server** permission.
 
 ---
 
@@ -147,7 +163,7 @@ All slash commands are **ephemeral** (only you can see the responses).
 
 ## Per-Server Configuration
 
-Each server can override the global defaults for confidence threshold, cooldown, and watched channels using the `/config` command group. Settings are saved to the database and take effect immediately.
+Each server can configure its own confidence threshold, cooldown, and watched channels using the `/config` command group. Settings are saved to the database and take effect immediately. By default the bot watches all channels — use `/config channels` to restrict it.
 
 ### `/config view` — Show current settings
 
@@ -189,7 +205,7 @@ Comma-separated list of channel names to monitor. Leave blank to watch all chann
 /config reset
 ```
 
-Restores this server's configuration to the global defaults from `.env`.
+Restores this server's configuration to the defaults (`confidence_threshold: 0.6`, `cooldown: 10s`, all channels).
 
 ---
 
@@ -197,13 +213,11 @@ All slash commands are **ephemeral** (only you can see the responses).
 
 ## Tuning
 
-The env vars below set the **global defaults**. Each server can override these individually via `/config`.
-
-| Env Variable | Default | Description |
+| Setting | Default | How to change |
 |---|---|---|
-| `CONFIDENCE_THRESHOLD` | `0.6` | Minimum confidence (0-1) to trigger a response. Raise to reduce false positives. |
-| `COOLDOWN_SECONDS` | `10` | Per-channel cooldown between responses. Prevents spam. |
-| `WATCHED_CHANNELS` | *(empty = all)* | Comma-separated channel names to monitor. |
+| Confidence threshold | `0.6` | `/config threshold` or `CONFIDENCE_THRESHOLD` env var |
+| Cooldown | `10s` | `/config cooldown` or `COOLDOWN_SECONDS` env var |
+| Watched channels | all | `/config channels` per server |
 
 ### Tips
 
@@ -219,8 +233,11 @@ Claude Haiku is used for classification. Each chat message costs roughly **$0.00
 ## File Structure
 
 ```
+bot.py          ← bot, slash commands, per-guild storage + config layer
+classifier.py   ← IntentClassifier wrapping Anthropic API
 commands.json   ← default command template seeded into new servers
 config.json     ← default config template used by /config reset
+Procfile        ← Railway process definition
 bot.db          ← SQLite database (auto-created on first run, gitignored)
 ```
 
