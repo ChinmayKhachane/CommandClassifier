@@ -79,18 +79,30 @@ A Discord bot that passively listens to chat and auto-responds when a message ma
 
 ---
 
+### SQLite migration
+
+- Replaced all JSON file storage (`data/{guild_id}.json`, `data/{guild_id}_config.json`) with a single SQLite database (`bot.db`)
+- `init_db()` creates the DB and tables on startup if they don't exist; called before `client.run()`
+- Two tables: `commands(guild_id, name, description, response)` and `guild_config(guild_id, confidence_threshold, cooldown_seconds, watched_channels)`
+- `watched_channels` stored as a JSON array string
+- `save_guild_commands` does a DELETE + bulk INSERT within a transaction for simplicity
+- `save_guild_config` uses INSERT OR REPLACE
+- In-memory caches unchanged — SQLite is only hit on cache miss or mutation
+- Uses `sqlite3` from the standard library — no new dependency
+
+---
+
 ## Current file structure
 
 ```
-bot.py                    — bot, slash commands, per-guild storage + config layer
-classifier.py             — IntentClassifier wrapping Anthropic API
-commands.json             — starter template copied to new servers (not live data)
-data/
-  {guild_id}.json         — per-server live command sets (auto-created)
-  {guild_id}_config.json  — per-server config (created on first /config change)
-CLAUDE.md                 — AI assistant guidance
-README.md                 — user-facing documentation
-progress.md               — this file
+bot.py          — bot, slash commands, per-guild storage + config layer
+classifier.py   — IntentClassifier wrapping Anthropic API
+commands.json   — default command template seeded into DB for new guilds
+config.json     — default config template used by /config reset
+bot.db          — SQLite database (auto-created on first run, gitignored)
+CLAUDE.md       — AI assistant guidance
+README.md       — user-facing documentation
+progress.md     — this file
 requirements.txt
 ```
 
@@ -102,3 +114,4 @@ requirements.txt
 - No `/exportcmds` or `/importcmds` for bulk command management
 - No per-server logging channel (all logs go to stdout only)
 - `SYNC_GUILD_ID` is a single test guild — no multi-guild test sync support
+- `bot.db` should be added to `.gitignore` to avoid committing live guild data

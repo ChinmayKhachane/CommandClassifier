@@ -4,6 +4,7 @@ from discord import app_commands
 import json
 import logging
 import os
+import sqlite3
 import asyncio
 import time
 from pathlib import Path
@@ -45,15 +46,45 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bot")
 
-# --- Per-guild command storage ----------------------------------------
+# --- Database setup ---------------------------------------------------
 
-DATA_DIR = Path(__file__).parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
-
+_data_dir = Path(os.getenv("DATA_DIR", str(Path(__file__).parent)))
+DB_PATH = _data_dir / "bot.db"
 COMMANDS_PATH = Path(__file__).parent / "commands.json"
+CONFIG_PATH = Path(__file__).parent / "config.json"
 
 with open(COMMANDS_PATH) as f:
     DEFAULT_COMMANDS: list[dict] = json.load(f)["commands"]
+
+with open(CONFIG_PATH) as f:
+    DEFAULT_CONFIG: dict = json.load(f)
+
+_conn: sqlite3.Connection | None = None
+
+
+def init_db():
+    global _conn
+    _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    _conn.row_factory = sqlite3.Row
+    _conn.executescript("""
+        CREATE TABLE IF NOT EXISTS commands (
+            guild_id  INTEGER NOT NULL,
+            name      TEXT    NOT NULL,
+            description TEXT  NOT NULL,
+            response  TEXT    NOT NULL,
+            PRIMARY KEY (guild_id, name)
+        );
+        CREATE TABLE IF NOT EXISTS guild_config (
+            guild_id             INTEGER PRIMARY KEY,
+            confidence_threshold REAL    NOT NULL,
+            cooldown_seconds     INTEGER NOT NULL,
+            watched_channels     TEXT    NOT NULL
+        );
+    """)
+    logger.info(f"Database initialised at {DB_PATH}")
+
+
+# --- Per-guild storage ------------------------------------------------
 
 # In-memory caches keyed by guild_id
 _guild_commands: dict[int, list[dict]] = {}
@@ -69,26 +100,34 @@ def _default_config() -> dict:
     }
 
 
-def _config_path(guild_id: int) -> Path:
-    return DATA_DIR / f"{guild_id}_config.json"
-
-
 def load_guild_config(guild_id: int) -> dict:
-    path = _config_path(guild_id)
     cfg = _default_config()
-    if path.exists():
-        with open(path) as f:
-            cfg.update(json.load(f))
+    row = _conn.execute(
+        "SELECT confidence_threshold, cooldown_seconds, watched_channels "
+        "FROM guild_config WHERE guild_id = ?",
+        (guild_id,),
+    ).fetchone()
+    if row:
+        cfg["confidence_threshold"] = row["confidence_threshold"]
+        cfg["cooldown_seconds"] = row["cooldown_seconds"]
+        cfg["watched_channels"] = json.loads(row["watched_channels"])
     return cfg
 
 
 def save_guild_config(guild_id: int, config: dict):
-    path = _config_path(guild_id)
-    tmp = path.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump(config, f, indent=2)
-    os.replace(tmp, path)
-    logger.info(f"[guild={guild_id}] Saved config to {path}")
+    with _conn:
+        _conn.execute(
+            "INSERT OR REPLACE INTO guild_config "
+            "(guild_id, confidence_threshold, cooldown_seconds, watched_channels) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                guild_id,
+                config["confidence_threshold"],
+                config["cooldown_seconds"],
+                json.dumps(config["watched_channels"]),
+            ),
+        )
+    logger.info(f"[guild={guild_id}] Saved config")
 
 
 def get_guild_config(guild_id: int) -> dict:
@@ -97,28 +136,27 @@ def get_guild_config(guild_id: int) -> dict:
     return _guild_config[guild_id]
 
 
-def _guild_path(guild_id: int) -> Path:
-    return DATA_DIR / f"{guild_id}.json"
-
-
 def load_guild_commands(guild_id: int) -> list[dict]:
-    path = _guild_path(guild_id)
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)["commands"]
-    # No file yet — seed from the default template
-    save_guild_commands(guild_id, DEFAULT_COMMANDS)
-    logger.info(f"[guild={guild_id}] Created default commands file from template")
+    rows = _conn.execute(
+        "SELECT name, description, response FROM commands WHERE guild_id = ?",
+        (guild_id,),
+    ).fetchall()
+    if rows:
+        return [dict(row) for row in rows]
+    # No rows yet — seed from the default template
+    save_guild_commands(guild_id, list(DEFAULT_COMMANDS))
+    logger.info(f"[guild={guild_id}] Seeded commands from template")
     return list(DEFAULT_COMMANDS)
 
 
 def save_guild_commands(guild_id: int, commands: list[dict]):
-    path = _guild_path(guild_id)
-    tmp = path.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump({"commands": commands}, f, indent=2)
-    os.replace(tmp, path)
-    logger.info(f"[guild={guild_id}] Saved {len(commands)} commands to {path}")
+    with _conn:
+        _conn.execute("DELETE FROM commands WHERE guild_id = ?", (guild_id,))
+        _conn.executemany(
+            "INSERT INTO commands (guild_id, name, description, response) VALUES (?, ?, ?, ?)",
+            [(guild_id, c["name"], c["description"], c["response"]) for c in commands],
+        )
+    logger.info(f"[guild={guild_id}] Saved {len(commands)} commands")
 
 
 def get_guild_commands(guild_id: int) -> list[dict]:
@@ -570,7 +608,7 @@ async def config_reset(interaction: discord.Interaction):
         )
         return
 
-    cfg = _default_config()
+    cfg = dict(DEFAULT_CONFIG)
     _guild_config[interaction.guild_id] = cfg
     save_guild_config(interaction.guild_id, cfg)
     reload_guild_classifier(interaction.guild_id)
@@ -620,6 +658,10 @@ async def on_ready():
             tree.copy_global_to(guild=guild_obj)
             await tree.sync(guild=guild_obj)
             logger.info(f"Synced {len(tree.get_commands())} slash commands to test guild {SYNC_GUILD_ID} (instant)")
+            # Clear global commands so they don't appear as duplicates alongside guild-scoped ones
+            tree.clear_commands(guild=None)
+            await tree.sync()
+            logger.info("Cleared global slash commands (may take up to 1 hour to fully disappear)")
     else:
         await tree.sync()
         logger.info(f"Synced {len(tree.get_commands())} slash commands globally (may take up to 1 hour)")
@@ -684,4 +726,5 @@ if __name__ == "__main__":
             "ADMIN_IDS is empty. Users with Manage Server permission can still manage commands."
         )
 
+    init_db()
     client.run(DISCORD_TOKEN)

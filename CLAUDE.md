@@ -28,19 +28,21 @@ Two files make up the entire bot:
 
 **`classifier.py`** — Wraps the Anthropic API. `IntentClassifier` builds a system prompt from the command list and sends each message to Claude Haiku, expecting a JSON response `{"command": "<name or none>", "confidence": 0.0–1.0}`. Call `reload(commands)` to hot-swap the command list without reinstantiating. `confidence_threshold` is a plain attribute and can be updated directly.
 
-### Per-guild command storage
+### Database
 
-- `commands.json` — read-only starter template. Copied to `data/{guild_id}.json` when the bot first joins a server.
-- `data/{guild_id}.json` — each server's live command set, same JSON schema as `commands.json`.
-- On startup, `on_ready` seeds files for all current guilds. `on_guild_join` seeds the file for newly joined guilds.
-- In-memory caches (`_guild_commands`, `_guild_classifiers`) are populated lazily and kept in sync by `save_guild_commands` + `reload_guild_classifier` after every mutation.
-- All file writes are atomic: written to `.tmp` then `os.replace()`.
+- All data is stored in `bot.db` (SQLite) in the project root.
+- `init_db()` must be called before `client.run()` — creates tables if they don't exist.
+- Two tables: `commands(guild_id, name, description, response)` and `guild_config(guild_id, confidence_threshold, cooldown_seconds, watched_channels)`.
+- `watched_channels` is stored as a JSON array string.
+- Uses `sqlite3` from the standard library — no extra dependency.
 
-### Per-guild config storage
+### Per-guild storage pattern
 
-- `data/{guild_id}_config.json` — per-server overrides for `confidence_threshold`, `cooldown_seconds`, and `watched_channels`.
-- Loaded lazily into `_guild_config` cache. Falls back to global env var defaults if no file exists.
-- `load_guild_config` always merges stored values over `_default_config()` so new keys get defaults automatically.
+- `commands.json` — read-only starter template seeded into the DB when a new guild is first seen.
+- `config.json` — read-only config template; loaded as `DEFAULT_CONFIG` at startup. Used by `/config reset` to restore defaults.
+- `load_guild_commands` seeds from `DEFAULT_COMMANDS` if no rows exist for that guild.
+- `load_guild_config` merges DB values over `_default_config()` (env vars) so new keys always get defaults.
+- In-memory caches (`_guild_commands`, `_guild_classifiers`, `_guild_config`) are populated lazily and kept in sync by `save_guild_commands` / `save_guild_config` + `reload_guild_classifier` after every mutation.
 - `reload_guild_classifier` updates both the command list and `confidence_threshold` on the classifier.
 
 ### Message flow
@@ -77,5 +79,8 @@ Two files make up the entire bot:
 
 - `PAGE_SIZE = 5` — commands shown per page in `/listcmds`
 - `DEFAULT_COMMANDS` — loaded once from `commands.json` at startup
+- `DB_PATH` — `Path` to `bot.db` in the project root
+- `_conn` — single `sqlite3.Connection`, opened by `init_db()`
+- `DEFAULT_CONFIG` — loaded once from `config.json` at startup; used by `/config reset`
 - `SYNC_GUILD_ID` — int or None, read from env
 - `_sync_to_guild` — bool set by argparse before `client.run()`

@@ -55,7 +55,7 @@ python bot.py
 
 ## Per-Server Commands
 
-Each server gets its own command set stored in `data/{guild_id}.json`. When the bot joins a server for the first time, it automatically creates that server's file by copying `commands.json` as a starting point.
+Each server gets its own command set stored in the database. When the bot joins a server for the first time, it automatically seeds that server's commands from `commands.json`.
 
 From that point on, each server's commands are fully independent — changes in one server don't affect any other.
 
@@ -147,7 +147,7 @@ All slash commands are **ephemeral** (only you can see the responses).
 
 ## Per-Server Configuration
 
-Each server can override the global defaults for confidence threshold, cooldown, and watched channels using the `/config` command group. Settings are saved to `data/{guild_id}_config.json` and take effect immediately.
+Each server can override the global defaults for confidence threshold, cooldown, and watched channels using the `/config` command group. Settings are saved to the database and take effect immediately.
 
 ### `/config view` — Show current settings
 
@@ -219,13 +219,9 @@ Claude Haiku is used for classification. Each chat message costs roughly **$0.00
 ## File Structure
 
 ```
-commands.json               ← default command template copied to new servers
-data/
-  123456789.json            ← server-specific commands (auto-created)
-  123456789_config.json     ← server-specific config (created on first change)
-  987654321.json
-  987654321_config.json
-  ...
+commands.json   ← default command template seeded into new servers
+config.json     ← default config template used by /config reset
+bot.db          ← SQLite database (auto-created on first run, gitignored)
 ```
 
 ## Architecture

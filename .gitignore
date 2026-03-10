@@ -1,4 +1,4 @@
-data/
+bot.db
 __pycache__/
 .env
 .idea/
